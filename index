@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gem Matcher Arcade - Match 3 Puzzle</title>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #38bdf8;
+      --gold: #f59e0b;
+      --text: #f8fafc;
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      background-color: var(--bg-color);
+      color: var(--text);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    h1 {
+      margin: 5px 0 15px;
+      color: var(--accent);
+      text-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+    }
+
+    .dashboard {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 15px;
+      background: var(--card-bg);
+      padding: 12px 24px;
+      border-radius: 12px;
+      border: 1px solid #334155;
+    }
+
+    .stat-box {
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #94a3b8;
+      text-transform: uppercase;
+    }
+
+    .stat-value {
+      font-size: 22px;
+      font-weight: bold;
+      color: var(--gold);
+    }
+
+    #game-container {
+      position: relative;
+    }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(6, 60px);
+      grid-template-rows: repeat(5, 60px);
+      gap: 8px;
+      background: var(--card-bg);
+      padding: 12px;
+      border-radius: 16px;
+      border: 2px solid #334155;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    }
+
+    .tile {
+      width: 60px;
+      height: 60px;
+      border-radius: 10px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 30px;
+      cursor: pointer;
+      transition: transform 0.2s, background-color 0.2s;
+      background: #0f172a;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .tile:hover {
+      transform: scale(1.05);
+      border-color: var(--accent);
+    }
+
+    .tile.selected {
+      outline: 3px solid var(--accent);
+      transform: scale(1.1);
+      z-index: 2;
+    }
+
+    .tile.matched {
+      animation: pop 0.3s forwards;
+    }
+
+    @keyframes pop {
+      0% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.8; }
+      100% { transform: scale(0); opacity: 0; }
+    }
+
+    .controls {
+      margin-top: 15px;
+    }
+
+    button {
+      background: var(--accent);
+      color: #0f172a;
+      border: none;
+      padding: 10px 20px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    /* Popup Floating Multiplier */
+    .float-text {
+      position: absolute;
+      color: var(--gold);
+      font-weight: bold;
+      font-size: 20px;
+      pointer-events: none;
+      animation: floatUp 1s forwards;
+      text-shadow: 0 0 5px black;
+    }
+
+    @keyframes floatUp {
+      0% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-40px); }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>💎 GEM MATCHER ARCADE</h1>
+
+  <div class="dashboard">
+    <div class="stat-box">
+      <div class="stat-label">Skor</div>
+      <div class="stat-value" id="score">0</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Kombo</div>
+      <div class="stat-value" id="combo">x1</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Gerakan</div>
+      <div class="stat-value" id="moves">20</div>
+    </div>
+  </div>
+
+  <div id="game-container">
+    <div id="grid"></div>
+  </div>
+
+  <div class="controls">
+    <button onclick="resetGame()">Muat Semula Game</button>
+  </div>
+
+  <script>
+    const ROWS = 5;
+    const COLS = 6;
+    const GEMS = ['💎', '🔴', '🟢', '🟡', '🟣'];
+    
+    let grid = [];
+    let selectedTile = null;
+    let score = 0;
+    let combo = 1;
+    let moves = 20;
+    let isProcessing = false;
+
+    const gridEl = document.getElementById('grid');
+    const scoreEl = document.getElementById('score');
+    const comboEl = document.getElementById('combo');
+    const movesEl = document.getElementById('moves');
+
+    // Inisialisasi Papan Game
+    function initBoard() {
+      gridEl.innerHTML = '';
+      grid = [];
+      for (let r = 0; r < ROWS; r++) {
+        grid[r] = [];
+        for (let c = 0; c < COLS; c++) {
+          let gem;
+          do {
+            gem = getRandomGem();
+          } while (causesMatchOnSpawn(r, c, gem));
+          
+          grid[r][c] = gem;
+          createTileElement(r, c, gem);
+        }
+      }
+    }
+
+    function getRandomGem() {
+      return GEMS[Math.floor(Math.random() * GEMS.length)];
+    }
+
+    function causesMatchOnSpawn(r, c, gem) {
+      if (c >= 2 && grid[r][c-1] === gem && grid[r][c-2] === gem) return true;
+      if (r >= 2 && grid[r-1][c] === gem && grid[r-2][c] === gem) return true;
+      return false;
+    }
+
+    function createTileElement(r, c, gem) {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.dataset.row = r;
+      tile.dataset.col = c;
+      tile.innerText = gem;
+      tile.addEventListener('click', () => handleTileClick(r, c));
+      gridEl.appendChild(tile);
+    }
+
+    function renderBoard() {
+      const tiles = gridEl.children;
+      let idx = 0;
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const tile = tiles[idx++];
+          tile.dataset.row = r;
+          tile.dataset.col = c;
+          tile.innerText = grid[r][c] || '';
+          tile.classList.remove('selected', 'matched');
+        }
+      }
+    }
+
+    // Mengendalikan Klik Permata
+    async function handleTileClick(r, c) {
+      if (isProcessing || moves <= 0) return;
+
+      const currentTile = getTileElement(r, c);
+
+      if (!selectedTile) {
+        selectedTile = { r, c };
+        currentTile.classList.add('selected');
+      } else {
+        const prevTile = getTileElement(selectedTile.r, selectedTile.c);
+        prevTile.classList.remove('selected');
+
+        // Semak jika bersebelahan
+        const isAdjacent = Math.abs(selectedTile.r - r) + Math.abs(selectedTile.c - c) === 1;
+
+        if (isAdjacent) {
+          isProcessing = true;
+          swapGems(selectedTile.r, selectedTile.c, r, c);
+          renderBoard();
+
+          const matches = findMatches();
+          if (matches.length > 0) {
+            moves--;
+            movesEl.innerText = moves;
+            combo = 1;
+            await processMatches();
+          } else {
+            // Tukar semula jika tiada match
+            await delay(200);
+            swapGems(selectedTile.r, selectedTile.c, r, c);
+            renderBoard();
+          }
+          isProcessing = false;
+        }
+
+        selectedTile = null;
+      }
+    }
+
+    function swapGems(r1, c1, r2, c2) {
+      const temp = grid[r1][c1];
+      grid[r1][c1] = grid[r2][c2];
+      grid[r2][c2] = temp;
+    }
+
+    // Mencari Padanan Match-3
+    function findMatches() {
+      let matched = new Set();
+
+      // Semak Baris
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS - 2; c++) {
+          let gem = grid[r][c];
+          if (gem && gem === grid[r][c+1] && gem === grid[r][c+2]) {
+            matched.add(`${r},${c}`);
+            matched.add(`${r},${c+1}`);
+            matched.add(`${r},${c+2}`);
+          }
+        }
+      }
+
+      // Semak Lajur
+      for (let c = 0; c < COLS; c++) {
+        for (let r = 0; r < ROWS - 2; r++) {
+          let gem = grid[r][c];
+          if (gem && gem === grid[r+1][c] && gem === grid[r+2][c]) {
+            matched.add(`${r},${c}`);
+            matched.add(`${r+1},${c}`);
+            matched.add(`${r+2},${c}`);
+          }
+        }
+      }
+
+      return Array.from(matched).map(coord => {
+        const [r, c] = coord.split(',').map(Number);
+        return { r, c };
+      });
+    }
+
+    // Proses Runtuhan & Kombo
+    async function processMatches() {
+      let matches = findMatches();
+
+      while (matches.length > 0) {
+        comboEl.innerText = `x${combo}`;
+        
+        // Tandakan animasi hilang
+        matches.forEach(({r, c}) => {
+          const tile = getTileElement(r, c);
+          if (tile) tile.classList.add('matched');
+        });
+
+        // Tambah Skor
+        const gainedScore = matches.length * 50 * combo;
+        score += gainedScore;
+        scoreEl.innerText = score;
+
+        showFloatText(`+${gainedScore}`);
+
+        await delay(300);
+
+        // Padamkan permata padan
+        matches.forEach(({r, c}) => {
+          grid[r][c] = null;
+        });
+
+        // Runtuhkan Permata ke Bawah (Tumble)
+        applyGravity();
+        renderBoard();
+        await delay(200);
+
+        // Isi semula petak kosong di atas
+        fillTopRows();
+        renderBoard();
+        await delay(200);
+
+        combo++;
+        matches = findMatches();
+      }
+
+      combo = 1;
+      comboEl.innerText = `x1`;
+
+      if (moves <= 0) {
+        alert(`Game Tamat! Skor Akhir Anda: ${score}`);
+      }
+    }
+
+    function applyGravity() {
+      for (let c = 0; c < COLS; c++) {
+        let emptyRow = ROWS - 1;
+        for (let r = ROWS - 1; r >= 0; r--) {
+          if (grid[r][c] !== null) {
+            grid[emptyRow][c] = grid[r][c];
+            if (emptyRow !== r) grid[r][c] = null;
+            emptyRow--;
+          }
+        }
+      }
+    }
+
+    function fillTopRows() {
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (grid[r][c] === null) {
+            grid[r][c] = getRandomGem();
+          }
+        }
+      }
+    }
+
+    function getTileElement(r, c) {
+      return gridEl.children[r * COLS + c];
+    }
+
+    function showFloatText(text) {
+      const floatEl = document.createElement('div');
+      floatEl.className = 'float-text';
+      floatEl.innerText = text;
+      floatEl.style.left = `${gridEl.offsetLeft + 100}px`;
+      floatEl.style.top = `${gridEl.offsetTop + 100}px`;
+      document.body.appendChild(floatEl);
+
+      setTimeout(() => floatEl.remove(), 1000);
+    }
+
+    function resetGame() {
+      score = 0;
+      combo = 1;
+      moves = 20;
+      isProcessing = false;
+      scoreEl.innerText = score;
+      comboEl.innerText = 'x1';
+      movesEl.innerText = moves;
+      initBoard();
+    }
+
+    function delay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Jalankan Game
+    initBoard();
+  </script>
+</body>
+</html>
